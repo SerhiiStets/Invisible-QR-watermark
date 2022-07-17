@@ -1,4 +1,6 @@
 *.stats
 .vscode
 __pycache__/
-__pycache__/*
+build/
+dist/
+invisible_qr_watermark.egg-info/

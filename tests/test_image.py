@@ -3,7 +3,7 @@
 from PIL import Image
 from pytest import raises
 
-from image import QRImage, EmptyQRTextError, NoQRImageError, QRSizeError, NoQRError
+from invisible_qr_watermark.image import QRImage, EmptyQRTextError, NoQRImageError, QRSizeError, NoQRError
 
 
 class TestQRImage:
