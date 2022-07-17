@@ -1,33 +1,34 @@
-""""""
+"""Module for endodin and decoding invisible QR into Images"""
 
 import qrcode
-import qrtools
-
 import numpy as np
 
 from PIL import Image
+from pyzbar.pyzbar import decode
 
 
-class NoQRImageException(BaseException):
+class NoQRImageError(BaseException):
     """No Image received Error."""
 
-    def __init__(self, *args: object) -> None:
-        super().__init__(*args)
 
-
-class EmptyQRText(BaseException):
+class EmptyQRTextError(BaseException):
     """No text to convert to QR Error."""
 
-    def __init__(self, *args: object) -> None:
-        super().__init__(*args)
+
+class QRSizeError(BaseException):
+    """QR image is bigger then Image Error."""
+
+
+class NoQRError(BaseException):
+    """No QR code in given Image Error."""
 
 
 class QRImage:
-    """"""
+    """Class to work with Image (encode, decode)."""
 
     def __init__(self, img_path: str) -> None:
         """
-        Initialize QRImage instance
+        Initialize QRImage instance.
 
         Parameters
         ----------
@@ -36,76 +37,85 @@ class QRImage:
         """
         try:
             self.image = Image.open(img_path, 'r')
-            self.image_rgba = np.asarray(self.image.convert('L'))
-            print(self.image_rgba)
+            self.image_rgba = np.array(self.image)
         except OSError as error:
-            raise NoQRImageException(f"{img_path}, Couldn't find or open the image") from error
+            raise NoQRImageError(f"{img_path}, Couldn't find or open the image") from error
 
     def __flatten_image(self) -> None:
         """Flatten the image, so that every red chanel has even number."""
-        for i, val in enumerate(self.image_rgba):
-            red, green, blue = val
+        for iy, ix, iz in np.ndindex(self.image_rgba.shape):
+            red = self.image_rgba[iy][ix][0]
             if red % 2:
                 if red == 255:
-                    self.image_rgba[i] = red - 1, green, blue
+                    self.image_rgba[iy][ix][0] = self.image_rgba[iy][ix][0] - 1
                 else:
-                    self.image_rgba[i] = red + 1, green, blue
+                    self.image_rgba[iy][ix][0] = self.image_rgba[iy][ix][0] + 1
 
-    def encode(self, text: str) -> Image:
-        """_summary_
+    def encode(self, text: str) -> Image.Image:
+        """
+        Encodes given text to image in a form of invisible QR code.
 
         Parameters
         ----------
         text : str
-            _description_
+            given text to encode
 
         Returns
         -------
-        Image
-            _description_
+        Image.Image
+            PIL Image instance
         """
         if not text:
-            raise EmptyQRText("Text can't be empty")
+            raise EmptyQRTextError("Text can't be empty")
 
         self.__flatten_image()
 
+        # TODO: version QR Code
+
         qr = qrcode.QRCode()
         qr.add_data(text)
-        qr_code = qrcode.make()
-        qr_rgba = np.asarray(qr_code.convert('L'))
-        # new_img = Image.new("RGB", qr_code.size)
-        # new_img.putdata(qr_code_rgba)
-        # new_img.save("QR2.png")
-        print()
+        qr.make()
+        qr_rgba = np.array(qr.make_image().convert('RGB'))
 
-        # print(qr_code_rgba)
-        for i, val in enumerate(qr_rgba):
-            if val == 0:
-                self.image_rgba[i] = self.image_rgba[i][0] - 100, self.image_rgba[i][1], self.image_rgba[i][2]
-        new_img = Image.new("RGB", self.image.size)
-        new_img.putdata(self.image_rgba)
-        return new_img
+        if qr_rgba.shape > self.image_rgba.shape:
+            raise QRSizeError("Generated QR is bigger then original image")
+
+        for iy, ix, iz in np.ndindex(qr_rgba.shape):
+            if qr_rgba[iy][ix][0] == 0:
+                if self.image_rgba[iy][ix][0] == 255:
+                    self.image_rgba[iy][ix][0] = self.image_rgba[iy][ix][0] - 1
+                else:
+                    self.image_rgba[iy][ix][0] = self.image_rgba[iy][ix][0] + 1
+        PIL_image = Image.fromarray(np.uint8(self.image_rgba)).convert('RGB')
+        return PIL_image
 
     def decode(self) -> str:
-        qr_rgba = []
-        for i, val in enumerate(self.image_rgba):
-            red, green, blue = val
+        """
+        Decodes given image by returning encoded in
+        invisible QR text.
+
+        Returns
+        -------
+        str
+            decoded message from hidden QR
+        """
+        qr_rgba = np.empty(self.image_rgba.shape)
+        for iy, ix, iz in np.ndindex(self.image_rgba.shape):
+            red = self.image_rgba[iy][ix][0]
             if red % 2:
-                qr_rgba.append((0, 0, 0))
+                qr_rgba[iy][ix] = [0, 0, 0]
             else:
-                qr_rgba.append((255, 255, 255))
-        # print(qr_rgba)
-        new_img = Image.new("RGB", self.image.size)
-        new_img.putdata(qr_rgba)
-        new_img.save("Qr.png")
-        #qr = qrtools.QR()
-        # qr.decode()
-        # return qr.data
+                qr_rgba[iy][ix] = [255, 255, 255]
 
+        PIL_image = Image.fromarray(np.uint8(qr_rgba)).convert('RGB')
 
-if __name__ == "__main__":
-    new_img = QRImage("img/ex1.jpg")
-    #new_img = QRImage("img/ex3.png")
-    new = new_img.encode("asdsadasdsadsad")
-    new.save("New_img.png")
-    new_img.decode()
+        # decode returns a list of pyzbar.pyzbar.Decoded type instances
+        # every instance contains a data key which stores byte version of QR text
+        # decode("utf-8") return str instead of byte
+        data = decode(PIL_image)
+
+        if not data:
+            # if list is empty, then decoder couldn't find a QR code
+            raise NoQRError("There's no QR code in given Image, nothing to decode")
+
+        return data[0].data.decode("utf-8")
